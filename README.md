@@ -10,13 +10,13 @@ An AI-powered chatbot web app that helps students:
 
 ## 🎥 Demo Video
 
-👉 [Watch Demo](https://youtube.com/YOUR_VIDEO_LINK)
+👉 [Watch Demo](https://github.com/Kanchana-86/study_assistant/blob/main/Demo.mp4)
 
 ---
 
 ## 🖥️ Chatbot Interface
 
-![Chatbot UI](screenshot.png)
+![Chatbot UI](https://github.com/Kanchana-86/study_assistant/blob/main/Interface.png)
 
 ---
 
