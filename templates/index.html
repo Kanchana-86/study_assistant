@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scholarly — Your Study Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <div class="logo">
+            <span class="logo-icon">✦</span>
+            <span class="logo-text">Scholarly</span>
+        </div>
+        <button class="new-chat-btn" onclick="startNewChat()">
+            <span>+</span> New Chat
+        </button>
+    </div>
+
+    <div class="history-label">Chat History</div>
+
+    <div class="history-list" id="historyList">
+        <!-- Populated by JS -->
+    </div>
+
+    <div class="sidebar-footer">
+        <div class="pdf-section">
+            <div class="pdf-label">📄 Upload PDF</div>
+            <label class="pdf-upload-area" id="pdfDropZone">
+                <input type="file" id="pdfFile" accept=".pdf" onchange="handleFileSelect(this)">
+                <span class="upload-icon">⬆</span>
+                <span class="upload-text" id="uploadText">Drop PDF here or click</span>
+            </label>
+            <button class="upload-btn" onclick="uploadPDF()" id="uploadBtn" disabled>Summarize PDF</button>
+            <div id="pdfStatus" class="pdf-status"></div>
+        </div>
+    </div>
+</aside>
+
+<!-- SIDEBAR TOGGLE (mobile) -->
+<button class="sidebar-toggle" id="sidebarToggle" onclick="toggleSidebar()">☰</button>
+
+<!-- MAIN CONTENT -->
+<main class="main" id="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+        <div class="chat-title" id="chatTitle">New Conversation</div>
+        <div class="topbar-actions">
+            <button class="action-btn" onclick="clearCurrentChat()" title="Clear chat">🗑 Clear</button>
+            <button class="action-btn delete-btn" onclick="deleteCurrentChat()" title="Delete chat">✕ Delete</button>
+        </div>
+    </div>
+
+    <!-- CHAT AREA -->
+    <div class="chat-area" id="chatArea">
+        <div class="welcome-screen" id="welcomeScreen">
+            <div class="welcome-glyph">✦</div>
+            <h1 class="welcome-title">What shall we<br>study today?</h1>
+            <p class="welcome-sub">Ask any question or upload a PDF to get started.</p>
+            <div class="suggestions">
+                <button class="suggestion-chip" onclick="useSuggestion(this)">Explain photosynthesis</button>
+                <button class="suggestion-chip" onclick="useSuggestion(this)">How does gravity work?</button>
+                <button class="suggestion-chip" onclick="useSuggestion(this)">What is the Pythagorean theorem?</button>
+                <button class="suggestion-chip" onclick="useSuggestion(this)">Summarize the French Revolution</button>
+            </div>
+        </div>
+
+        <div class="messages-container" id="messagesContainer">
+            <!-- Messages injected here -->
+        </div>
+    </div>
+
+    <!-- INPUT BAR -->
+    <div class="input-bar">
+        <div class="input-wrapper">
+            <textarea
+                id="questionInput"
+                placeholder="Ask your question…"
+                rows="1"
+                onkeydown="handleKeyDown(event)"
+                oninput="autoResize(this)"
+            ></textarea>
+            <button class="send-btn" id="sendBtn" onclick="askQuestion()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            </button>
+        </div>
+        <div class="input-hint">Press Enter to send · Shift+Enter for new line</div>
+    </div>
+
+</main>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+let currentChatId = null;
+let chats = {};         // { id: { title, messages: [{role, content, time}] } }
+let isLoading = false;
+let sidebarOpen = window.innerWidth > 768;
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+    loadChatsFromStorage();
+    renderHistoryList();
+    startNewChat();
+    if (window.innerWidth <= 768) closeSidebar();
+});
+
+// ─── Storage ──────────────────────────────────────────────────────────────────
+function loadChatsFromStorage() {
+    const saved = localStorage.getItem('scholarly_chats');
+    chats = saved ? JSON.parse(saved) : {};
+}
+
+function saveChatsToStorage() {
+    localStorage.setItem('scholarly_chats', JSON.stringify(chats));
+}
+
+// ─── Chat Management ──────────────────────────────────────────────────────────
+function startNewChat() {
+    const id = 'chat_' + Date.now();
+    chats[id] = { title: 'New Conversation', messages: [], createdAt: Date.now() };
+    currentChatId = id;
+    saveChatsToStorage();
+    renderHistoryList();
+    renderMessages();
+    document.getElementById('chatTitle').textContent = 'New Conversation';
+    document.getElementById('welcomeScreen').style.display = 'flex';
+    document.getElementById('messagesContainer').innerHTML = '';
+}
+
+function loadChat(id) {
+    currentChatId = id;
+    const chat = chats[id];
+    document.getElementById('chatTitle').textContent = chat.title;
+
+    const wScreen = document.getElementById('welcomeScreen');
+    const mContainer = document.getElementById('messagesContainer');
+    mContainer.innerHTML = '';
+
+    if (chat.messages.length === 0) {
+        wScreen.style.display = 'flex';
+    } else {
+        wScreen.style.display = 'none';
+        chat.messages.forEach(msg => appendMessageToDOM(msg.role, msg.content, msg.time, false));
+        scrollToBottom();
+    }
+
+    renderHistoryList();
+    if (window.innerWidth <= 768) closeSidebar();
+}
+
+function clearCurrentChat() {
+    if (!currentChatId || !chats[currentChatId]) return;
+    chats[currentChatId].messages = [];
+    chats[currentChatId].title = 'New Conversation';
+    document.getElementById('chatTitle').textContent = 'New Conversation';
+    document.getElementById('messagesContainer').innerHTML = '';
+    document.getElementById('welcomeScreen').style.display = 'flex';
+    saveChatsToStorage();
+    renderHistoryList();
+}
+
+function deleteCurrentChat() {
+    if (!currentChatId || !chats[currentChatId]) return;
+    delete chats[currentChatId];
+    saveChatsToStorage();
+    renderHistoryList();
+    startNewChat();
+}
+
+function deleteChat(id, e) {
+    e.stopPropagation();
+    delete chats[id];
+    saveChatsToStorage();
+    renderHistoryList();
+    if (id === currentChatId) startNewChat();
+}
+
+// ─── Render History ───────────────────────────────────────────────────────────
+function renderHistoryList() {
+    const list = document.getElementById('historyList');
+    const sorted = Object.entries(chats).sort((a, b) => b[1].createdAt - a[1].createdAt);
+
+    if (sorted.length === 0) {
+        list.innerHTML = '<div class="no-history">No chats yet</div>';
+        return;
+    }
+
+    list.innerHTML = sorted.map(([id, chat]) => `
+        <div class="history-item ${id === currentChatId ? 'active' : ''}" onclick="loadChat('${id}')">
+            <div class="history-item-icon">💬</div>
+            <div class="history-item-info">
+                <div class="history-item-title">${escapeHtml(chat.title)}</div>
+                <div class="history-item-meta">${chat.messages.length} message${chat.messages.length !== 1 ? 's' : ''}</div>
+            </div>
+            <button class="history-delete" onclick="deleteChat('${id}', event)" title="Delete">✕</button>
+        </div>
+    `).join('');
+}
+
+function renderMessages() {
+    // called on init — nothing extra needed
+}
+
+// ─── Messaging ────────────────────────────────────────────────────────────────
+function useSuggestion(btn) {
+    document.getElementById('questionInput').value = btn.textContent;
+    askQuestion();
+}
+
+function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        askQuestion();
+    }
+}
+
+function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+async function askQuestion() {
+    if (isLoading) return;
+    const input = document.getElementById('questionInput');
+    const q = input.value.trim();
+    if (!q) return;
+
+    hideWelcome();
+    input.value = '';
+    input.style.height = 'auto';
+
+    const time = formatTime();
+    addMessageToChat('user', q, time);
+    appendMessageToDOM('user', q, time);
+
+    if (chats[currentChatId].messages.filter(m => m.role === 'user').length === 1) {
+        const title = q.slice(0, 40) + (q.length > 40 ? '…' : '');
+        chats[currentChatId].title = title;
+        document.getElementById('chatTitle').textContent = title;
+        saveChatsToStorage();
+        renderHistoryList();
+    }
+
+    const thinkingEl = showThinking();
+    setLoading(true);
+
+    try {
+        const res = await fetch('/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: q })
+        });
+        const data = await res.json();
+        thinkingEl.remove();
+        const ansTime = formatTime();
+        addMessageToChat('bot', data.answer, ansTime);
+        appendMessageToDOM('bot', data.answer, ansTime);
+    } catch (err) {
+        thinkingEl.remove();
+        const errMsg = 'Something went wrong. Please try again.';
+        addMessageToChat('bot', errMsg, formatTime());
+        appendMessageToDOM('bot', errMsg, formatTime());
+    }
+
+    setLoading(false);
+    scrollToBottom();
+}
+
+function addMessageToChat(role, content, time) {
+    chats[currentChatId].messages.push({ role, content, time });
+    saveChatsToStorage();
+}
+
+function appendMessageToDOM(role, content, time, animate = true) {
+    const container = document.getElementById('messagesContainer');
+    const div = document.createElement('div');
+    div.className = `message ${role}${animate ? ' animate-in' : ''}`;
+
+    const formattedContent = formatContent(content);
+
+    div.innerHTML = `
+        <div class="message-avatar">${role === 'user' ? '👤' : '✦'}</div>
+        <div class="message-body">
+            <div class="message-content">${formattedContent}</div>
+            <div class="message-time">${time || ''}</div>
+        </div>
+    `;
+    container.appendChild(div);
+    if (animate) scrollToBottom();
+}
+
+function formatContent(text) {
+    // Convert markdown-like formatting
+    return text
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/^• (.+)/gm, '<li>$1</li>')
+        .replace(/^- (.+)/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+        .replace(/\n/g, '<br>');
+}
+
+function showThinking() {
+    const container = document.getElementById('messagesContainer');
+    const div = document.createElement('div');
+    div.className = 'message bot thinking-msg';
+    div.innerHTML = `
+        <div class="message-avatar">✦</div>
+        <div class="message-body">
+            <div class="thinking">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+    `;
+    container.appendChild(div);
+    scrollToBottom();
+    return div;
+}
+
+// ─── PDF Upload ───────────────────────────────────────────────────────────────
+function handleFileSelect(input) {
+    const file = input.files[0];
+    if (file) {
+        document.getElementById('uploadText').textContent = file.name.slice(0, 22) + (file.name.length > 22 ? '…' : '');
+        document.getElementById('uploadBtn').disabled = false;
+        document.getElementById('pdfDropZone').classList.add('has-file');
+    }
+}
+
+async function uploadPDF() {
+    const file = document.getElementById('pdfFile').files[0];
+    if (!file) return;
+
+    const status = document.getElementById('pdfStatus');
+    status.textContent = 'Summarizing…';
+    status.className = 'pdf-status loading';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        hideWelcome();
+        const time = formatTime();
+        const userMsg = `📄 Uploaded PDF: ${file.name}`;
+        const botMsg = data.answer;
+
+        addMessageToChat('user', userMsg, time);
+        appendMessageToDOM('user', userMsg, time);
+        addMessageToChat('bot', botMsg, time);
+        appendMessageToDOM('bot', botMsg, time);
+
+        if (chats[currentChatId].messages.filter(m => m.role === 'user').length === 1) {
+            const title = 'PDF: ' + file.name.slice(0, 30);
+            chats[currentChatId].title = title;
+            document.getElementById('chatTitle').textContent = title;
+        }
+
+        saveChatsToStorage();
+        renderHistoryList();
+        scrollToBottom();
+
+        status.textContent = '✓ Done!';
+        status.className = 'pdf-status done';
+        document.getElementById('uploadText').textContent = 'Drop PDF here or click';
+        document.getElementById('uploadBtn').disabled = true;
+        document.getElementById('pdfFile').value = '';
+        document.getElementById('pdfDropZone').classList.remove('has-file');
+        setTimeout(() => { status.textContent = ''; status.className = 'pdf-status'; }, 3000);
+    } catch (err) {
+        status.textContent = '✕ Upload failed';
+        status.className = 'pdf-status error';
+    }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function hideWelcome() {
+    document.getElementById('welcomeScreen').style.display = 'none';
+}
+
+function scrollToBottom() {
+    const area = document.getElementById('chatArea');
+    area.scrollTop = area.scrollHeight;
+}
+
+function setLoading(state) {
+    isLoading = state;
+    document.getElementById('sendBtn').disabled = state;
+}
+
+function formatTime() {
+    const now = new Date();
+    return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function toggleSidebar() {
+    sidebarOpen ? closeSidebar() : openSidebar();
+}
+
+function openSidebar() {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('main').classList.add('shifted');
+    sidebarOpen = true;
+}
+
+function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('main').classList.remove('shifted');
+    sidebarOpen = false;
+}
+</script>
+
+</body>
+</html>
+
